@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>머니 플래너 에이전트</title>
+<style>
+:root{--bg:#f6f7f4;--ink:#1d2a24;--mut:#66736c;--card:#fff;--line:#dde2dc;--acc:#1f6f55;--warn:#b4531a;--rp:#7b3fa0}
+@media(prefers-color-scheme:dark){:root{--bg:#141a17;--ink:#e6ede8;--mut:#93a39a;--card:#1c2420;--line:#2c3832;--acc:#58c39c;--warn:#e89a60;--rp:#c79be0}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Pretendard","Noto Sans KR",system-ui,sans-serif}
+header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0 auto 0 0}nav button{background:none;border:0;color:var(--mut);font:inherit;padding:6px 10px;cursor:pointer;border-bottom:2px solid transparent}
+nav button.on{color:var(--ink);border-color:var(--acc)}
+main{display:grid;grid-template-columns:1fr 340px;height:calc(100vh - 57px)}
+@media(max-width:800px){main{grid-template-columns:1fr;height:auto}}
+section{display:flex;flex-direction:column;min-height:0}.pane{padding:16px 20px;overflow:auto;flex:1}
+.msg{max-width:660px;margin:0 0 12px;padding:10px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);white-space:pre-wrap}
+.msg.me{margin-left:auto;background:var(--acc);color:#fff;border-color:var(--acc)}
+form{display:flex;gap:8px;padding:12px 20px;border-top:1px solid var(--line)}
+input{flex:1;min-width:90px;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+button.p{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button.g{background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit;margin-top:6px}
+aside{border-left:1px solid var(--line)}aside h2{font-size:14px;margin:0;padding:12px 16px;border-bottom:1px solid var(--line)}
+.ev{padding:6px 10px;margin-bottom:6px;border-left:3px solid var(--line);font-size:13px}
+.ev.tool{border-color:var(--acc)}.ev.err{border-color:var(--warn);color:var(--warn)}.ev.replan{border-color:var(--rp);color:var(--rp);font-weight:600}
+.ev small{color:var(--mut);display:block;word-break:break-all}
+.plan{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;max-width:660px}
+.plan pre{white-space:pre-wrap;font:inherit;margin:6px 0;color:var(--mut)}.row{display:flex;gap:6px;flex-wrap:wrap}.hide{display:none}
+</style></head><body>
+<header><h1>머니 플래너 에이전트</h1><nav><button id="t1" class="on">대화</button><button id="t2">내 계획</button></nav></header>
+<main id="chatv">
+<section><div class="pane" id="msgs"><div class="msg">목돈 예치, 월 저축 목표, 환전 vs 예금을 비교해 드려요. 금액과 기간을 함께 알려 주세요.</div></div>
+<form id="f"><input id="q" placeholder="예: 500만원을 1년 뒤에 써야 해. 가장 금리 높은 예금은?" autocomplete="off"><button class="p">보내기</button></form></section>
+<aside><h2>에이전트 실행 이력</h2><div class="pane" id="trace"><div class="ev"><small>요청을 보내면 단계와 Tool 호출이 여기에 표시돼요.</small></div></div></aside>
+</main>
+<main id="planv" class="hide" style="grid-template-columns:1fr"><section><div class="pane" id="plans"></div></section></main>
+<script>
+const $=s=>document.querySelector(s);let sid=null;
+const api=async(u,o)=>{const r=await fetch(u,o&&{...o,headers:{'Content-Type':'application/json'}});
+  if(!r.ok)throw new Error(r.status);return r.status==204?null:r.json()};
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+$('#t1').onclick=()=>tab(1);$('#t2').onclick=()=>{tab(2);loadPlans()};
+function tab(n){$('#chatv').classList.toggle('hide',n!=1);$('#planv').classList.toggle('hide',n!=2);$('#t1').classList.toggle('on',n==1);$('#t2').classList.toggle('on',n==2)}
+function add(t,me){const d=document.createElement('div');d.className='msg'+(me?' me':'');d.textContent=t;$('#msgs').append(d);d.scrollIntoView();return d}
+$('#f').onsubmit=async e=>{e.preventDefault();const m=$('#q').value.trim();if(!m)return;$('#q').value='';add(m,1);
+ const w=add('분석 중…');$('#trace').innerHTML='<div class="ev"><small>처리 중…</small></div>';
+ try{const r=await api('/api/chat',{method:'POST',body:JSON.stringify({message:m,session_id:sid})});sid=r.session_id;w.remove();
+  const d=add(r.answer);
+  if(r.plan_draft){const b=document.createElement('button');b.className='g';b.textContent='이 계획 저장';
+   b.onclick=async()=>{try{const p=await api('/api/plans',{method:'POST',body:JSON.stringify(r.plan_draft)});
+    b.textContent=p.overlaps.length?`저장됨 (기간이 겹치는 계획 #${p.overlaps.join(', #')} 있음)`:'저장됨';b.disabled=true}catch{b.textContent='저장 실패'}};
+   d.append(document.createElement('br'),b)}
+  showTrace(await api('/api/logs/'+sid))}catch{w.textContent='서버에 연결하지 못했어요. 백엔드가 실행 중인지 확인하세요.'}};
+function showTrace(evs){const i=evs.map(e=>e.event).lastIndexOf('session.start');
+ $('#trace').innerHTML=evs.slice(i).map(({event:e,payload:p})=>{let c='ev',t='';
+  if(e=='step.start')t=`단계: ${p.step}`;
+  else if(e=='tool.call'){c+=' tool';t=`Tool 호출: ${p.tool}<small>${esc(JSON.stringify(p.args))}</small>`}
+  else if(e=='tool.result'){c+=p.ok?' tool':' err';t=`결과: ${p.tool} ${p.ok?'성공':'실패 '+esc(p.code)}<small>${p.ms}ms</small>`}
+  else if(e=='replan'){c+=' replan';t=`재계획 ${p.count}회<small>${esc(p.reason)} → ${p.to_term}개월로 재시도</small>`}
+  else if(e=='decision')t=`판단(${p.step})<small>${esc(p.intent||p.kind||p.note||'')} ${esc(p.reason||'')}</small>`;
+  else if(e=='error'){c+=' err';t=`오류: ${esc(p.code)}`}else return'';
+  return`<div class="${c}">${t}</div>`}).join('')}
+async function loadPlans(){const ps=await api('/api/plans');$('#plans').innerHTML=ps.length?ps.map(p=>`<div class="plan" data-id="${p.plan_id}" data-kind="${esc(p.kind)}" data-summary="${esc(p.summary)}">
+ <b>#${p.plan_id}</b> <small>${esc(p.created_at)}</small>
+ <div class="row"><input value="${esc(p.title)}" data-k="title"><input type="number" value="${p.amount??''}" data-k="amount" placeholder="금액"><input type="number" value="${p.months??''}" data-k="months" placeholder="개월"><input type="date" value="${p.start_date}" data-k="start_date"></div>
+ <pre>${esc(p.summary)}</pre><div class="row"><button class="g" onclick="save(${p.plan_id},this)">수정 저장</button><button class="g" onclick="del(${p.plan_id})">삭제</button></div></div>`).join(''):'<div class="msg">저장한 계획이 없어요. 대화에서 계획을 만든 뒤 "이 계획 저장"을 눌러 보세요.</div>'}
+async function save(id,b){const el=b.closest('.plan'),o={kind:el.dataset.kind,summary:el.dataset.summary};
+ el.querySelectorAll('input').forEach(i=>{const k=i.dataset.k;o[k]=i.type=='number'?(i.value===''?null:+i.value):i.value});
+ try{await api('/api/plans/'+id,{method:'PUT',body:JSON.stringify(o)});loadPlans()}catch{b.textContent='수정 실패(입력 확인)'}}
+async function del(id){await api('/api/plans/'+id,{method:'DELETE'});loadPlans()}
+</script></body></html>
